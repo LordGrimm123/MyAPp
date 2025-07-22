@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Chat (Live)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- React and ReactDOM CDNs -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel for JSX transformation in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Firebase CDNs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updatePassword, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Expose Firebase modules globally for the Babel script to access
+        window.firebase = {
+            initializeApp, getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+            updatePassword, onAuthStateChanged, signOut, signInAnonymously, signInWithCustomToken,
+            getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, doc, getDoc, setDoc
+        };
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        /* Custom scrollbar for chat messages */
+        .overflow-y-auto::-webkit-scrollbar {
+            width: 8px;
+        }
+        .overflow-y-auto::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        .dark .overflow-y-auto::-webkit-scrollbar-track {
+            background: #4a5568; /* dark gray-700 */
+        }
+        .overflow-y-auto::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        .dark .overflow-y-auto::-webkit-scrollbar-thumb {
+            background: #a0aec0; /* dark gray-500 */
+        }
+        .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .dark .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+            background: #cbd5e0; /* dark gray-300 */
+        }
+        /* Fade-in animation */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Inline SVG for icons since lucide-react won't work directly with CDNs without more setup
+        const SunIcon = ({ size = 20, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+            </svg>
+        );
+
+        const MoonIcon = ({ size = 20, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+            </svg>
+        );
+
+        const SendIcon = ({ size = 18, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="m22 2-7 20-4-9-9-4 20-7Z"/><path d="M9.3 9.3 17 17"/>
+            </svg>
+        );
+
+        const LogOutIcon = ({ size = 18, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="17 16 22 12 17 8"/><line x1="22" x2="10" y1="12" y2="12"/>
+            </svg>
+        );
+
+        const KeyRoundIcon = ({ size = 16, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M2 18v3c0 .6.4 1 1 1h4v-5H2Z"/><path d="M7 21v-3.5A2.5 2.5 0 0 1 9.5 15h5A2.5 2.5 0 0 1 17 17.5V21h4c.6 0 1-.4 1-1v-3H7Z"/><path d="M17 14V7.5A4.5 4.5 0 0 0 12.5 3H12A2 2 0 0 0 10 5v2.5"/>
+            </svg>
+        );
+
+        const UserIcon = ({ size = 16, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+            </svg>
+        );
+
+        const TagIcon = ({ size = 16, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414L14.586 22.414a2 2 0 0 0 2.828 0l7.172-7.172a2 2 0 0 0 0-2.828L12.586 2.586Z"/><path d="M7 7h.01"/>
+            </svg>
+        );
+
+        function App() {
+            const [db, setDb] = React.useState(null);
+            const [auth, setAuth] = React.useState(null);
+            const [user, setUser] = React.useState(null);
+            const [userId, setUserId] = React.useState(null);
+            const [isAuthReady, setIsAuthReady] = React.useState(false);
+            const [usernameInput, setUsernameInput] = React.useState('');
+            const [password, setPassword] = React.useState('');
+            const [displayName, setDisplayName] = React.useState('');
+            const [message, setMessage] = React.useState('');
+            const [chatMessages, setChatMessages] = React.useState([]);
+            const [error, setError] = React.useState('');
+            const [showPasswordChange, setShowPasswordChange] = React.useState(false);
+            const [newPassword, setNewPassword] = React.useState('');
+            const [confirmNewPassword, setConfirmNewPassword] = React.useState('');
+            const [isDarkMode, setIsDarkMode] = React.useState(false);
+            const messagesEndRef = React.useRef(null);
+
+            // Pre-defined users and their email mappings
+            const predefinedUsers = {
+                ryan: 'ryan@chat.com',
+                guest: 'guest@chat.com',
+                guest1: 'guest1@chat.com',
+                guest2: 'guest2@chat.com',
+                guest3: 'guest3@chat.com',
+            };
+            const defaultPassword = 'Ryo123';
+
+            // Firebase configuration for a standalone HTML file
+            // IMPORTANT: Replace these with your actual Firebase project's config
+            // You can find this in your Firebase console under Project settings -> General -> Your apps
+            const firebaseConfig = {
+                apiKey: "YOUR_API_KEY", // e.g., "AIzaSyC..."
+                authDomain: "YOUR_PROJECT_ID.firebaseapp.com", // e.g., "my-chat-app-123.firebaseapp.com"
+                projectId: "YOUR_PROJECT_ID", // e.g., "my-chat-app-123"
+                storageBucket: "YOUR_PROJECT_ID.appspot.com", // e.g., "my-chat-app-123.appspot.com"
+                messagingSenderId: "YOUR_MESSAGING_SENDER_ID", // e.g., "1234567890"
+                appId: "YOUR_APP_ID", // e.g., "1:1234567890:web:abcdef1234567890abcdef"
+                measurementId: "YOUR_MEASUREMENT_ID" // e.g., "G-XXXXXXXXXX"
+            };
+
+            // Canvas specific global variables, default to null/empty if not present
+            // In a standalone HTML file, these will be undefined, so it will use the hardcoded firebaseConfig above.
+            const canvasAppId = typeof __app_id !== 'undefined' ? __app_id : firebaseConfig.projectId; // Use project ID as default app ID
+            const canvasFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : firebaseConfig;
+            const canvasInitialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+
+            // Initialize Firebase and set up auth listener
+            React.useEffect(() => {
+                try {
+                    // Use canvasFirebaseConfig if running in Canvas, otherwise use the hardcoded firebaseConfig above.
+                    // IMPORTANT: You MUST replace the placeholder values in firebaseConfig above with your actual Firebase project details.
+                    const app = window.firebase.initializeApp(canvasFirebaseConfig);
+                    const firestore = window.firebase.getFirestore(app);
+                    const firebaseAuth = window.firebase.getAuth(app);
+
+                    setDb(firestore);
+                    setAuth(firebaseAuth);
+
+                    const unsubscribe = window.firebase.onAuthStateChanged(firebaseAuth, async (currentUser) => {
+                        if (currentUser) {
+                            setUser(currentUser);
+                            setUserId(currentUser.uid);
+                            const userDocRef = window.firebase.doc(firestore, `artifacts/${canvasAppId}/users/${currentUser.uid}/profile/data`);
+                            const userDocSnap = await window.firebase.getDoc(userDocRef);
+                            if (userDocSnap.exists()) {
+                                setDisplayName(userDocSnap.data().displayName || userDocSnap.data().username || currentUser.email.split('@')[0]);
+                            } else {
+                                const usernameFromEmail = currentUser.email ? currentUser.email.split('@')[0] : `user-${currentUser.uid.substring(0, 6)}`;
+                                await window.firebase.setDoc(userDocRef, {
+                                    username: usernameFromEmail,
+                                    displayName: usernameFromEmail,
+                                    email: currentUser.email,
+                                    createdAt: window.firebase.serverTimestamp()
+                                });
+                                setDisplayName(usernameFromEmail);
+                            }
+                        } else {
+                            setUser(null);
+                            setUserId(null);
+                            setDisplayName('');
+                        }
+                        setIsAuthReady(true);
+                    });
+
+                    const signIn = async () => {
+                        try {
+                            if (canvasInitialAuthToken) {
+                                await window.firebase.signInWithCustomToken(firebaseAuth, canvasInitialAuthToken);
+                            } else {
+                                await window.firebase.signInAnonymously(firebaseAuth);
+                            }
+                        } catch (err) {
+                            console.error("Firebase initial sign-in error:", err);
+                            setError(`Failed to sign in: ${err.message}`);
+                        }
+                    };
+                    signIn();
+
+                    return () => unsubscribe();
+                } catch (err) {
+                    console.error("Firebase initialization error:", err);
+                    setError(`Firebase initialization failed: ${err.message}. Please ensure Firebase is correctly configured and its services are enabled.`);
+                }
+            }, []);
+
+            // Fetch chat messages in real-time
+            React.useEffect(() => {
+                if (db && isAuthReady && userId) {
+                    const q = window.firebase.query(window.firebase.collection(db, `artifacts/${canvasAppId}/public/data/chat_messages`), window.firebase.orderBy('timestamp'));
+
+                    const unsubscribe = window.firebase.onSnapshot(q, async (snapshot) => {
+                        const messages = [];
+                        for (const docSnapshot of snapshot.docs) {
+                            const data = docSnapshot.data();
+                            let senderDisplayName = 'Unknown';
+                            if (data.userId) {
+                                const userProfileRef = window.firebase.doc(db, `artifacts/${canvasAppId}/users/${data.userId}/profile/data`);
+                                const userProfileSnap = await window.firebase.getDoc(userProfileRef);
+                                if (userProfileSnap.exists()) {
+                                    senderDisplayName = userProfileSnap.data().displayName || userProfileSnap.data().username || (data.email ? data.email.split('@')[0] : `user-${data.userId.substring(0, 6)}`);
+                                } else {
+                                    senderDisplayName = data.email ? data.email.split('@')[0] : `user-${data.userId.substring(0, 6)}`;
+                                }
+                            }
+                            messages.push({ id: docSnapshot.id, ...data, username: senderDisplayName });
+                        }
+                        setChatMessages(messages);
+                    }, (err) => {
+                        console.error("Error fetching chat messages:", err);
+                        setError(`Failed to load messages: ${err.message}`);
+                    });
+
+                    return () => unsubscribe();
+                }
+            }, [db, isAuthReady, userId]);
+
+            React.useEffect(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+            }, [chatMessages]);
+
+            const handleLogin = async (e) => {
+                e.preventDefault();
+                setError('');
+
+                const normalizedUsernameInput = usernameInput.toLowerCase();
+                const firebaseEmail = predefinedUsers[normalizedUsernameInput] || normalizedUsernameInput;
+
+                try {
+                    const userCredential = await window.firebase.signInWithEmailAndPassword(auth, firebaseEmail, password);
+                    const currentUser = userCredential.user;
+
+                    const userDocRef = window.firebase.doc(db, `artifacts/${canvasAppId}/users/${currentUser.uid}/profile/data`);
+                    const userDocSnap = await window.firebase.getDoc(userDocRef);
+
+                    let finalDisplayName = displayName.trim();
+                    if (!finalDisplayName) {
+                        finalDisplayName = normalizedUsernameInput || (currentUser.email ? currentUser.email.split('@')[0] : `user-${currentUser.uid.substring(0, 6)}`);
+                    }
+
+                    if (userDocSnap.exists()) {
+                        await window.firebase.setDoc(userDocRef, { displayName: finalDisplayName }, { merge: true });
+                    } else {
+                        await window.firebase.setDoc(userDocRef, {
+                            username: normalizedUsernameInput,
+                            displayName: finalDisplayName,
+                            email: firebaseEmail,
+                            createdAt: window.firebase.serverTimestamp()
+                        });
+                    }
+                    setDisplayName(finalDisplayName);
+                    setError('');
+                } catch (err) {
+                    if (err.code === 'auth/operation-not-allowed') {
+                        setError('Login failed: Email/Password authentication is not enabled in your Firebase project settings. Please enable it in the Firebase console under Authentication > Sign-in method.');
+                    } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+                        if (Object.values(predefinedUsers).includes(firebaseEmail) && password === defaultPassword) {
+                            try {
+                                const userCredential = await window.firebase.createUserWithEmailAndPassword(auth, firebaseEmail, password);
+                                const currentUser = userCredential.user;
+
+                                let finalDisplayName = displayName.trim();
+                                if (!finalDisplayName) {
+                                    finalDisplayName = normalizedUsernameInput || (currentUser.email ? currentUser.email.split('@')[0] : `user-${currentUser.uid.substring(0, 6)}`);
+                                }
+
+                                const userDocRef = window.firebase.doc(db, `artifacts/${canvasAppId}/users/${currentUser.uid}/profile/data`);
+                                await window.firebase.setDoc(userDocRef, {
+                                    username: normalizedUsernameInput,
+                                    displayName: finalDisplayName,
+                                    email: firebaseEmail,
+                                    createdAt: window.firebase.serverTimestamp()
+                                });
+                                setDisplayName(finalDisplayName);
+                                setError('Account created and logged in!');
+                            } catch (createErr) {
+                                if (createErr.code === 'auth/operation-not-allowed') {
+                                    setError('Account creation failed: Email/Password authentication is not enabled in your Firebase project settings. Please enable it in the Firebase console under Authentication > Sign-in method.');
+                                } else {
+                                    console.error("Error creating user:", createErr);
+                                    setError(`Login failed: ${createErr.message}. If this is a new account, please try again or check credentials.`);
+                                }
+                            }
+                        } else {
+                            setError('Invalid username or password.');
+                        }
+                    } else {
+                        console.error("Login error:", err);
+                        setError(`Login failed: ${err.message}`);
+                    }
+                }
+            };
+
+            const handleSendMessage = async (e) => {
+                e.preventDefault();
+                setError('');
+                if (!message.trim() || !user || !db) return;
+
+                try {
+                    await window.firebase.addDoc(window.firebase.collection(db, `artifacts/${canvasAppId}/public/data/chat_messages`), {
+                        text: message,
+                        timestamp: window.firebase.serverTimestamp(),
+                        userId: user.uid,
+                        email: user.email,
+                        displayName: displayName
+                    });
+                    setMessage('');
+                } catch (err) {
+                    console.error("Error sending message:", err);
+                    setError(`Failed to send message: ${err.message}`);
+                }
+            };
+
+            const handleChangePassword = async (e) => {
+                e.preventDefault();
+                setError('');
+                if (newPassword !== confirmNewPassword) {
+                    setError('New passwords do not match.');
+                    return;
+                }
+                if (newPassword.length < 6) {
+                    setError('New password must be at least 6 characters long.');
+                    return;
+                }
+
+                try {
+                    await window.firebase.updatePassword(user, newPassword);
+                    setError('Password updated successfully!');
+                    setShowPasswordChange(false);
+                    setNewPassword('');
+                    setConfirmNewPassword('');
+                } catch (err) {
+                    console.error("Error changing password:", err);
+                    setError(`Failed to change password: ${err.message}`);
+                }
+            };
+
+            const handleLogout = async () => {
+                setError('');
+                try {
+                    await window.firebase.signOut(auth);
+                } catch (err) {
+                    console.error("Error logging out:", err);
+                    setError(`Failed to log out: ${err.message}`);
+                }
+            };
+
+            const toggleDarkMode = () => {
+                setIsDarkMode(!isDarkMode);
+                document.documentElement.classList.toggle('dark');
+            };
+
+            if (!isAuthReady) {
+                return (
+                    <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
+                        <div className="text-xl font-semibold text-gray-700 dark:text-gray-300">Loading application...</div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className={`min-h-screen font-inter flex flex-col items-center justify-center p-4 transition-colors duration-300 ${isDarkMode ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'}`}>
+                    <div className={`bg-white rounded-xl shadow-lg p-8 w-full max-w-md flex flex-col gap-6 transition-colors duration-300 ${isDarkMode ? 'dark:bg-gray-800' : ''}`}>
+                        <div className="flex justify-between items-center mb-4">
+                            <h1 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-500 to-purple-600 dark:from-blue-400 dark:to-purple-500">
+                                Pro Chat
+                            </h1>
+                            <button
+                                onClick={toggleDarkMode}
+                                className="p-2 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 shadow-md hover:scale-105 transition-transform duration-200"
+                                aria-label="Toggle dark mode"
+                            >
+                                {isDarkMode ? <SunIcon size={20} /> : <MoonIcon size={20} />}
+                            </button>
+                        </div>
+
+                        {error && (
+                            <div className="bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300 p-3 rounded-lg text-sm text-center animate-fade-in">
+                                {error}
+                            </div>
+                        )}
+
+                        {!user ? (
+                            <form onSubmit={handleLogin} className="flex flex-col gap-4">
+                                <p className="text-center text-gray-600 dark:text-gray-300">
+                                    Please log in to start chatting.
+                                </p>
+                                <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+                                    Predefined IDs: Ryan, Guest, Guest1, Guest2, Guest3 (Password: Ryo123)
+                                </p>
+                                <div>
+                                    <label htmlFor="usernameInput" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        <UserIcon size={16} className="inline-block mr-1" /> Username (e.g., Ryan, Guest)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="usernameInput"
+                                        className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                                        value={usernameInput}
+                                        onChange={(e) => setUsernameInput(e.target.value)}
+                                        placeholder="Enter username"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        <KeyRoundIcon size={16} className="inline-block mr-1" /> Password
+                                    </label>
+                                    <input
+                                        type="password"
+                                        id="password"
+                                        className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                                        value={password}
+                                        onChange={(e) => setPassword(e.target.value)}
+                                        placeholder="Enter password"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                        <TagIcon size={16} className="inline-block mr-1" /> Display Name (Optional, e.g., Ryan Chat)
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="displayName"
+                                        className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                                        value={displayName}
+                                        onChange={(e) => setDisplayName(e.target.value)}
+                                        placeholder="Enter display name"
+                                    />
+                                </div>
+                                <button
+                                    type="submit"
+                                    className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                >
+                                    Login
+                                </button>
+                            </form>
+                        ) : (
+                            <div className="flex flex-col gap-6">
+                                <div className="flex justify-between items-center">
+                                    <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200">
+                                        Welcome, {displayName || (user.email ? user.email.split('@')[0] : `User ID: ${user.uid.substring(0, 8)}`)}!
+                                    </h2>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 flex items-center gap-1 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                                    >
+                                        <LogOutIcon size={18} /> Logout
+                                    </button>
+                                </div>
+
+                                <button
+                                    onClick={() => setShowPasswordChange(!showPasswordChange)}
+                                    className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 flex items-center justify-center gap-1"
+                                >
+                                    <KeyRoundIcon size={18} /> {showPasswordChange ? 'Hide Password Change' : 'Change Password'}
+                                </button>
+
+                                {showPasswordChange && (
+                                    <form onSubmit={handleChangePassword} className="flex flex-col gap-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg animate-fade-in">
+                                        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">Change Password</h3>
+                                        <div>
+                                            <label htmlFor="newPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                New Password
+                                            </label>
+                                            <input
+                                                type="password"
+                                                id="newPassword"
+                                                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                                                value={newPassword}
+                                                onChange={(e) => setNewPassword(e.target.value)}
+                                                placeholder="Enter new password"
+                                                required
+                                            />
+                                        </div>
+                                        <div>
+                                            <label htmlFor="confirmNewPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                Confirm New Password
+                                            </label>
+                                            <input
+                                                type="password"
+                                                id="confirmNewPassword"
+                                                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                                                value={confirmNewPassword}
+                                                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                                                placeholder="Confirm new password"
+                                                required
+                                            />
+                                        </div>
+                                        <button
+                                            type="submit"
+                                            className="w-full bg-gradient-to-r from-green-500 to-teal-600 hover:from-green-600 hover:to-teal-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                        >
+                                            Update Password
+                                        </button>
+                                    </form>
+                                )}
+
+                                <div className="flex flex-col gap-3 h-80 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-lg p-4 bg-gray-50 dark:bg-gray-700 shadow-inner">
+                                    {chatMessages.length === 0 ? (
+                                        <p className="text-center text-gray-500 dark:text-gray-400">No messages yet. Start chatting!</p>
+                                    ) : (
+                                        chatMessages.map((msg) => (
+                                            <div
+                                                key={msg.id}
+                                                className={`flex ${msg.userId === user.uid ? 'justify-end' : 'justify-start'} animate-fade-in`}
+                                            >
+                                                <div
+                                                    className={`max-w-[70%] p-3 rounded-xl shadow-md transition-all duration-300 ${
+                                                        msg.userId === user.uid
+                                                            ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-br-none'
+                                                            : 'bg-gray-200 dark:bg-gray-600 text-gray-900 dark:text-gray-100 rounded-bl-none'
+                                                    }`}
+                                                >
+                                                    <p className="font-bold text-sm mb-1">
+                                                        {msg.userId === user.uid ? 'You' : msg.username}
+                                                    </p>
+                                                    <p className="text-sm">{msg.text}</p>
+                                                    <p className="text-xs text-right opacity-75 mt-1">
+                                                        {msg.timestamp ? new Date(msg.timestamp.toDate()).toLocaleTimeString() : 'Sending...'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                    <div ref={messagesEndRef} />
+                                </div>
+
+                                <form onSubmit={handleSendMessage} className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        className="flex-grow p-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                                        value={message}
+                                        onChange={(e) => setMessage(e.target.value)}
+                                        placeholder="Type your message..."
+                                        required
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold py-3 px-4 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 flex items-center gap-1 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                                    >
+                                        <SendIcon size={18} /> Send
+                                    </button>
+                                </form>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-2">
+                                    Your User ID: <span className="font-mono">{userId || 'N/A'}</span>
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
